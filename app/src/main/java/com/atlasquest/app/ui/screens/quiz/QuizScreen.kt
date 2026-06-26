@@ -6,10 +6,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.atlasquest.app.data.model.Region
 
 // TODO: Wire up QuizViewModel and display real questions
 @Composable
-fun QuizScreen(mode: String, onQuizComplete: (score: Int, total: Int) -> Unit) {
+fun QuizScreen(region: Region?, onQuizComplete: (score: Int, total: Int) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -18,7 +19,7 @@ fun QuizScreen(mode: String, onQuizComplete: (score: Int, total: Int) -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Quiz — $mode mode",
+            text = "Quiz — ${region?.displayName ?: "All regions"}",
             style = MaterialTheme.typography.headlineMedium
         )
         Spacer(modifier = Modifier.height(32.dp))
