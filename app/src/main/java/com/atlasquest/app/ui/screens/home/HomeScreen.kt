@@ -8,7 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun HomeScreen(onStartQuiz: (mode: String) -> Unit) {
+fun HomeScreen(onPlay: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -28,20 +28,8 @@ fun HomeScreen(onStartQuiz: (mode: String) -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(48.dp))
-        QuizModeButton("Classic Quiz", "classic", onStartQuiz)
-        Spacer(modifier = Modifier.height(12.dp))
-        QuizModeButton("Streak Mode", "streak", onStartQuiz)
-        Spacer(modifier = Modifier.height(12.dp))
-        QuizModeButton("Daily Challenge", "daily", onStartQuiz)
-    }
-}
-
-@Composable
-private fun QuizModeButton(label: String, mode: String, onClick: (String) -> Unit) {
-    Button(
-        onClick = { onClick(mode) },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text(label)
+        Button(onClick = onPlay, modifier = Modifier.fillMaxWidth()) {
+            Text("Play")
+        }
     }
 }
