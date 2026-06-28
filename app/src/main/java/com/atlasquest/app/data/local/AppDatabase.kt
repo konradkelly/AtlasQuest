@@ -7,7 +7,7 @@ import com.atlasquest.app.data.local.entity.QuestionEntity
 
 @Database(
     entities = [QuestionEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

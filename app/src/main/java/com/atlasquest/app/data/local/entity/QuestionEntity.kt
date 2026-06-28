@@ -13,4 +13,5 @@ data class QuestionEntity(
     val region: String,
     val difficulty: Int,
     val imageResName: String? = null,
+    val explanation: String? = null,
 )

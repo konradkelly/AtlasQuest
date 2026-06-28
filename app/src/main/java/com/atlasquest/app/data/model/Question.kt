@@ -17,4 +17,5 @@ data class Question(
     val region: String,
     val difficulty: Int,       // 1–3
     val imageResName: String? = null,
+    val explanation: String? = null,   // shown after answering, when present
 )

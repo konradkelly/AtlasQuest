@@ -29,6 +29,12 @@ enum class Region(
     val displayName: String,
     val continent: Continent,
     val isoCodes: List<String>,
+    /**
+     * A top-level region selected straight from the continent globe (e.g. Eurasia),
+     * rather than a sub-region reached by drilling into [continent]. Excluded from
+     * [forContinent] so it doesn't also appear on that continent's sub-region map.
+     */
+    val topLevel: Boolean = false,
 ) {
     // North America
     NORTHERN_AMERICA("northern_america", "Northern America", Continent.NORTH_AMERICA,
@@ -54,7 +60,7 @@ enum class Region(
     SOUTHERN_EUROPE("southern_europe", "Southern Europe", Continent.EUROPE,
         listOf("ES", "PT", "IT", "GR", "MT")),
     EASTERN_EUROPE("eastern_europe", "Eastern Europe", Continent.EUROPE,
-        listOf("PL", "CZ", "SK", "HU", "RO", "BG", "UA", "BY", "MD", "RU")),
+        listOf("PL", "CZ", "SK", "HU", "RO", "BG", "UA", "BY", "MD")),
     BALKANS("balkans", "The Balkans", Continent.EUROPE,
         listOf("HR", "SI", "BA", "RS", "ME", "MK", "AL", "XK")),
 
@@ -71,6 +77,8 @@ enum class Region(
         listOf("ZA", "AO", "ZM", "ZW", "MZ", "BW", "NA", "MW", "MG", "LS", "SZ")),
 
     // Asia
+    EURASIA("eurasia", "Eurasia", Continent.ASIA,
+        listOf("RU"), topLevel = true),
     MIDDLE_EAST("middle_east", "Middle East", Continent.ASIA,
         listOf("TR", "SA", "IR", "IQ", "SY", "JO", "IL", "LB", "AE", "OM", "YE", "KW", "QA", "BH")),
     CENTRAL_ASIA("central_asia", "Central Asia", Continent.ASIA,
@@ -90,7 +98,7 @@ enum class Region(
 
     companion object {
         fun forContinent(continent: Continent): List<Region> =
-            entries.filter { it.continent == continent }
+            entries.filter { it.continent == continent && !it.topLevel }
 
         fun fromId(id: String): Region? = entries.find { it.id == id }
 
