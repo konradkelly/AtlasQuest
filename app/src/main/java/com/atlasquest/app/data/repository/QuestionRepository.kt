@@ -32,4 +32,5 @@ private fun QuestionEntity.toDomain(): Question = Question(
     region = region,
     difficulty = difficulty,
     imageResName = imageResName,
+    explanation = explanation,
 )

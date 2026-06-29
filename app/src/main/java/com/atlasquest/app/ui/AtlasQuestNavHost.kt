@@ -6,7 +6,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.atlasquest.app.data.model.Continent
-import com.atlasquest.app.data.model.Region
 import com.atlasquest.app.ui.screens.globe.GlobeScreen
 import com.atlasquest.app.ui.screens.home.HomeScreen
 import com.atlasquest.app.ui.screens.quiz.QuizScreen
@@ -41,6 +40,9 @@ fun AtlasQuestNavHost(
             GlobeScreen(
                 onContinentSelected = { continent ->
                     navController.navigate(Screen.RegionMap.createRoute(continent.name))
+                },
+                onStartQuiz = { regionId ->
+                    navController.navigate(Screen.Quiz.createRoute(regionId))
                 }
             )
         }
@@ -50,17 +52,16 @@ fun AtlasQuestNavHost(
             if (continent != null) {
                 SubregionGlobeScreen(
                     continent = continent,
+                    onBack = { navController.popBackStack() },
                     onStartQuiz = { regionId ->
                         navController.navigate(Screen.Quiz.createRoute(regionId))
                     }
                 )
             }
         }
-        composable(Screen.Quiz.route) { backStackEntry ->
-            val regionId = backStackEntry.arguments?.getString("region") ?: ""
-            val region = Region.fromId(regionId)
+        composable(Screen.Quiz.route) {
+            // QuizViewModel reads the {region} nav arg from its SavedStateHandle.
             QuizScreen(
-                region = region,
                 onQuizComplete = { score, total ->
                     navController.navigate(Screen.Results.createRoute(score, total)) {
                         popUpTo(Screen.Home.route)

@@ -16,7 +16,7 @@ class AtlasQuestApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CoroutineScope(Dispatchers.IO).launch {
-            seeder.seedIfEmpty()
+            seeder.seedIfNeeded()
         }
     }
 }

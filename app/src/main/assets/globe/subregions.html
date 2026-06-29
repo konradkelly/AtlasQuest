@@ -126,14 +126,45 @@ function resize() {
   fitToContinent();
 }
 
+// For framing only, keep each country's main landmass plus any sizeable
+// secondary one, while dropping small, far-flung territories. Several features
+// bundle distant specks into one geometry (France carries French Guiana, Réunion…;
+// Norway carries Svalbard; the US carries Hawaii) that would blow up the fit and
+// shove the region off-screen. But some secondary landmasses are big and belong
+// in frame — most notably Alaska — so we keep anything above a size threshold
+// rather than only the single largest. Colouring/hit-testing use full geometry.
+const FRAME_MIN_AREA = 0.006;   // steradians (~245,000 km²): keeps Alaska, drops French Guiana
+let _framingFC = null;
+function framingCollection() {
+  if (_framingFC) return _framingFC;
+  if (!continentFC) return null;
+  const features = continentFC.features.map(f => {
+    const g = f.geometry;
+    if (!g || g.type !== 'MultiPolygon') return f;
+    const polys = g.coordinates.map(coords => ({
+      coords, area: d3.geoArea({ type: 'Polygon', coordinates: coords }),
+    }));
+    const maxArea = polys.reduce((m, p) => Math.max(m, p.area), 0);
+    // Always keep the largest (so no country vanishes), plus any large secondary.
+    const kept = polys.filter(p => p.area === maxArea || p.area >= FRAME_MIN_AREA);
+    const geometry = kept.length === 1
+      ? { type: 'Polygon', coordinates: kept[0].coords }
+      : { type: 'MultiPolygon', coordinates: kept.map(p => p.coords) };
+    return { type: 'Feature', properties: f.properties, geometry };
+  });
+  _framingFC = { type: 'FeatureCollection', features };
+  return _framingFC;
+}
+
 // Centre the continent and scale it to fill the canvas, then leave it frozen.
 function fitToContinent() {
   if (!projection) return;
-  if (continentFC && continentFC.features.length) {
-    const c = d3.geoCentroid(continentFC);
+  const fit = framingCollection();
+  if (fit && fit.features.length) {
+    const c = d3.geoCentroid(fit);
     projection.rotate([-c[0], -c[1]]);
     const pad = Math.min(W, H) * 0.08;
-    projection.fitExtent([[pad, pad], [W - pad, H - pad]], continentFC);
+    projection.fitExtent([[pad, pad], [W - pad, H - pad]], fit);
   } else {
     projection.scale(Math.min(W, H) * 0.42).translate([W / 2, H / 2]);
   }
@@ -201,10 +232,14 @@ function draw() {
       // faint full outline...
       ctx.lineWidth = 2; ctx.lineJoin = 'round';
       ctx.strokeStyle = hexToRgba(sub.color, 0.3); ctx.stroke();
-      // ...with one bright segment travelling around it (~one lap / 0.5s @60fps).
+      // ...with one bright segment travelling around it. Advance by a constant
+      // pixel speed (not a fraction of the perimeter) so the ring sweeps at the
+      // same pace for every region — otherwise long, many-island outlines like
+      // Southeast Asia's whip around much faster than compact ones.
       const lit = Math.max(len * 0.16, 24);
+      const RING_PX_PER_FRAME = 9;   // ~540px/s @60fps
       ctx.setLineDash([lit, len]);
-      ctx.lineDashOffset = -((animT / 30) % 1) * (len + lit);
+      ctx.lineDashOffset = -(animT * RING_PX_PER_FRAME) % (len + lit);
       ctx.shadowColor = brighten(sub.color, 1); ctx.shadowBlur = 18;
       ctx.strokeStyle = brighten(sub.color, 1); ctx.lineWidth = 3.5; ctx.lineCap = 'round';
       ctx.stroke();

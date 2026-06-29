@@ -49,13 +49,18 @@
   }
   .region-chip:hover { background: rgba(88,204,2,0.18); border-color: #58CC02; color: #58CC02; }
   .region-chip.active { background: #58CC02; border-color: #58CC02; color: #fff; }
-  #chips {
+  /* Bottom UI stacks the hint above the chips and grows upward, so the hint
+     never overlaps the chips however many rows they wrap into. */
+  #bottom-bar {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 8px; flex-wrap: nowrap; overflow-x: auto;
-    max-width: calc(100% - 32px); padding-bottom: 2px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    width: calc(100% - 32px);
+  }
+  #chips {
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    width: 100%; padding-bottom: 2px;
   }
   #hint {
-    position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
     font-size: 12px; color: rgba(255,255,255,0.35); white-space: nowrap;
   }
   .sr-only {
@@ -78,8 +83,10 @@
       <div class="stat"><span class="stat-label">Area</span><span class="stat-val" id="rp-area">-</span></div>
       <div id="xp-badge">⚡ Explore region</div>
     </div>
-    <div id="hint">tap a continent or use buttons below</div>
-    <div id="chips"></div>
+    <div id="bottom-bar">
+      <div id="hint">tap a continent or use buttons below</div>
+      <div id="chips"></div>
+    </div>
   </div>
 </div>
 
@@ -89,7 +96,9 @@
 /* REGION DEFINITIONS — ISO 3166-1 numeric codes, plain decimals (no octal!). */
 const NA = [124,840,484,320,84,340,222,558,188,591,192,388,332,214,630,780,44,52,662,308,28,212,659,670,533,531,304];
 const SA = [32,68,76,152,170,218,328,600,604,740,858,862];
-const EU = [8,20,40,112,56,70,100,191,196,203,208,233,246,250,276,300,348,352,372,380,383,428,438,440,442,470,498,492,499,528,807,578,616,620,642,643,674,688,703,705,724,752,756,804,826,336];
+const EU = [8,20,40,112,56,70,100,191,196,203,208,233,246,250,276,300,348,352,372,380,383,428,438,440,442,470,498,492,499,528,807,578,616,620,642,674,688,703,705,724,752,756,804,826,336];
+// Russia (643) is its own transcontinental region, not part of Europe.
+const EURASIA = [643];
 const AF = [12,24,204,72,854,108,132,120,140,148,174,178,180,262,818,226,232,748,231,266,270,288,324,624,384,404,426,430,434,450,454,466,478,480,504,508,516,562,566,646,678,686,690,694,706,710,728,729,834,768,788,800,894,716];
 const AS = [4,51,31,48,50,64,96,116,156,268,356,360,364,368,376,392,400,398,414,417,418,422,458,462,496,104,524,408,512,586,275,608,634,682,702,410,144,760,158,762,764,626,792,795,784,860,704,887];
 const OC = [36,242,296,584,583,520,554,585,598,882,90,776,798,548,316,580,16,258,540];
@@ -101,6 +110,9 @@ const REGIONS = {
   "Africa":        { emoji:"🌍", color:"#FF4B4B", countries:54, pop:"1.4B", area:"30.3M km²", chip:"Africa",    ids: new Set(AF) },
   "Asia":          { emoji:"🌏", color:"#FF9600", countries:48, pop:"4.7B", area:"44.6M km²", chip:"Asia",      ids: new Set(AS) },
   "Oceania":       { emoji:"🌏", color:"#CE82FF", countries:14, pop:"44M",  area:"8.5M km²",  chip:"Oceania",   ids: new Set(OC) },
+  // A single-country region spanning Europe and Asia. Its panel button starts the
+  // quiz directly (quizId) instead of drilling into a sub-region map.
+  "Eurasia":       { emoji:"🧭", color:"#2DD4BF", countries:1,  pop:"144M", area:"17.1M km²", chip:"Eurasia",   ids: new Set(EURASIA), quizId:"eurasia" },
 };
 
 const COUNTRY_TO_REGION = {};
@@ -287,7 +299,8 @@ function selectRegion(rname) {
   const rd=REGIONS[rname];
   document.getElementById('rp-emoji').textContent=rd.emoji;
   document.getElementById('rp-name').textContent=rname;
-  document.getElementById('rp-sub').textContent='Top region';
+  document.getElementById('rp-sub').textContent = rd.quizId ? 'Single-country region' : 'Top region';
+  document.getElementById('xp-badge').textContent = rd.quizId ? '⚡ Start quiz' : '⚡ Explore region';
   document.getElementById('rp-countries').textContent=rd.countries;
   document.getElementById('rp-pop').textContent=rd.pop;
   document.getElementById('rp-area').textContent=rd.area;
@@ -345,9 +358,16 @@ canvas.addEventListener('touchend',e=>{
   if (e.cancelable) e.preventDefault();
 });
 
-// Hand off to the native app: launch the selected continent's sub-region map + quiz.
+// Hand off to the native app. Continents open their sub-region map; a region with
+// a quizId (Eurasia) skips that and launches its quiz directly.
 document.getElementById('xp-badge').addEventListener('click',()=>{
   if (!selectedRegion) return;
+  const rd = REGIONS[selectedRegion];
+  if (rd.quizId) {
+    if (window.AtlasQuest && window.AtlasQuest.onStartQuiz) window.AtlasQuest.onStartQuiz(rd.quizId);
+    else console.log('Start quiz:', rd.quizId);
+    return;
+  }
   if (window.AtlasQuest && window.AtlasQuest.onContinentSelected) {
     window.AtlasQuest.onContinentSelected(selectedRegion);
   } else {

@@ -24,6 +24,9 @@ interface QuestionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(questions: List<QuestionEntity>)
 
+    @Query("DELETE FROM questions")
+    suspend fun clearAll()
+
     @Query("SELECT COUNT(*) FROM questions")
     suspend fun count(): Int
 }

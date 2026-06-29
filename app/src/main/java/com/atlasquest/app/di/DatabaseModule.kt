@@ -19,6 +19,9 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.DATABASE_NAME)
+            // Questions are bundled seed data, so a schema bump can safely wipe and
+            // re-seed rather than requiring a hand-written migration.
+            .fallbackToDestructiveMigration()
             .build()
 
     @Provides
