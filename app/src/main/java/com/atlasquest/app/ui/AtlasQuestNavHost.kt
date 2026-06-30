@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.atlasquest.app.data.model.Continent
+import com.atlasquest.app.data.model.Region
 import com.atlasquest.app.ui.screens.globe.GlobeScreen
 import com.atlasquest.app.ui.screens.home.HomeScreen
 import com.atlasquest.app.ui.screens.quiz.QuizScreen
@@ -21,8 +22,8 @@ sealed class Screen(val route: String) {
     data object Quiz : Screen("quiz/{region}") {
         fun createRoute(region: String) = "quiz/$region"
     }
-    data object Results : Screen("results/{score}/{total}") {
-        fun createRoute(score: Int, total: Int) = "results/$score/$total"
+    data object Results : Screen("results/{region}/{score}/{total}") {
+        fun createRoute(region: String, score: Int, total: Int) = "results/$region/$score/$total"
     }
 }
 
@@ -59,23 +60,36 @@ fun AtlasQuestNavHost(
                 )
             }
         }
-        composable(Screen.Quiz.route) {
-            // QuizViewModel reads the {region} nav arg from its SavedStateHandle.
+        composable(Screen.Quiz.route) { backStackEntry ->
+            // QuizViewModel also reads the {region} nav arg from its SavedStateHandle.
+            val regionId = backStackEntry.arguments?.getString("region").orEmpty()
             QuizScreen(
                 onQuizComplete = { score, total ->
-                    navController.navigate(Screen.Results.createRoute(score, total)) {
+                    navController.navigate(Screen.Results.createRoute(regionId, score, total)) {
                         popUpTo(Screen.Home.route)
                     }
                 }
             )
         }
         composable(Screen.Results.route) { backStackEntry ->
+            val region = backStackEntry.arguments?.getString("region")?.let(Region::fromId)
             val score = backStackEntry.arguments?.getString("score")?.toIntOrNull() ?: 0
             val total = backStackEntry.arguments?.getString("total")?.toIntOrNull() ?: 0
             ResultsScreen(
                 score = score,
                 total = total,
-                onPlayAgain = { navController.popBackStack(Screen.Home.route, inclusive = false) },
+                onPlayAgain = {
+                    when {
+                        // Eurasia is picked straight from the globe, so there's no
+                        // subregion screen to return to.
+                        region == null || region.topLevel ->
+                            navController.navigate(Screen.Globe.route) { popUpTo(Screen.Home.route) }
+                        else ->
+                            navController.navigate(Screen.RegionMap.createRoute(region.continent.name)) {
+                                popUpTo(Screen.Home.route)
+                            }
+                    }
+                },
                 onHome = { navController.popBackStack(Screen.Home.route, inclusive = false) }
             )
         }
