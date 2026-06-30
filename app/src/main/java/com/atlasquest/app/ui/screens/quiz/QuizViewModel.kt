@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.atlasquest.app.data.model.Question
 import com.atlasquest.app.data.model.Region
+import com.atlasquest.app.data.repository.ProfileRepository
 import com.atlasquest.app.data.repository.QuestionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,9 +15,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** XP awarded per correct answer scales with [Question.difficulty] (1-3). */
+private const val XP_PER_DIFFICULTY_POINT = 10
+
 /**
  * UI state for a single quiz run. [score] is the number of correct answers so far
- * (the Results screen renders "score / total"); weighted XP arrives in Phase 2.
+ * (the Results screen renders "score / total"); [xpEarned] is the difficulty-weighted
+ * XP accumulated so far, persisted to the profile once the quiz finishes.
  */
 data class QuizUiState(
     val loading: Boolean = true,
@@ -25,6 +30,7 @@ data class QuizUiState(
     val selectedOption: Int? = null,
     val answerRevealed: Boolean = false,
     val score: Int = 0,
+    val xpEarned: Int = 0,
     val finished: Boolean = false,
 ) {
     val current: Question? get() = questions.getOrNull(currentIndex)
@@ -35,6 +41,7 @@ data class QuizUiState(
 @HiltViewModel
 class QuizViewModel @Inject constructor(
     private val repository: QuestionRepository,
+    private val profileRepository: ProfileRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -70,6 +77,7 @@ class QuizViewModel @Inject constructor(
             selectedOption = index,
             answerRevealed = true,
             score = state.score + if (correct) 1 else 0,
+            xpEarned = state.xpEarned + if (correct) question.difficulty * XP_PER_DIFFICULTY_POINT else 0,
         )
     }
 
@@ -77,10 +85,22 @@ class QuizViewModel @Inject constructor(
     fun next() {
         val state = _uiState.value
         if (!state.answerRevealed) return
-        _uiState.value = if (state.isLastQuestion) {
-            state.copy(finished = true)
+        if (state.isLastQuestion) {
+            // Persist before flipping `finished` so QuizScreen's navigation away
+            // (triggered by `finished`) can never race the DB write.
+            viewModelScope.launch {
+                region?.let {
+                    profileRepository.recordQuizResult(
+                        regionId = it.id,
+                        correct = state.score,
+                        total = state.total,
+                        xpEarned = state.xpEarned,
+                    )
+                }
+                _uiState.value = state.copy(finished = true)
+            }
         } else {
-            state.copy(
+            _uiState.value = state.copy(
                 currentIndex = state.currentIndex + 1,
                 selectedOption = null,
                 answerRevealed = false,

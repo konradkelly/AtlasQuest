@@ -3,6 +3,7 @@ package com.atlasquest.app.di
 import android.content.Context
 import androidx.room.Room
 import com.atlasquest.app.data.local.AppDatabase
+import com.atlasquest.app.data.local.dao.ProfileDao
 import com.atlasquest.app.data.local.dao.QuestionDao
 import dagger.Module
 import dagger.Provides
@@ -26,4 +27,7 @@ object DatabaseModule {
 
     @Provides
     fun provideQuestionDao(db: AppDatabase): QuestionDao = db.questionDao()
+
+    @Provides
+    fun provideProfileDao(db: AppDatabase): ProfileDao = db.profileDao()
 }

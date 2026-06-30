@@ -33,14 +33,14 @@ private val WrongRed = Color(0xFFFF4B4B)
 
 @Composable
 fun QuizScreen(
-    onQuizComplete: (score: Int, total: Int) -> Unit,
+    onQuizComplete: (score: Int, total: Int, xpEarned: Int) -> Unit,
     viewModel: QuizViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
 
     // The ViewModel signals completion; the host owns navigation to Results.
     if (state.finished) {
-        onQuizComplete(state.score, state.total)
+        onQuizComplete(state.score, state.total, state.xpEarned)
         return
     }
 
@@ -49,7 +49,9 @@ fun QuizScreen(
         state.questions.isEmpty() -> CenterMessage {
             Text("No questions available yet.", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(16.dp))
-            Button(onClick = { onQuizComplete(0, 0) }) { Text("Back") }
+            // Bypasses the ViewModel's `finished` flag entirely, so no quiz
+            // result (XP/streak) is ever recorded for an empty quiz.
+            Button(onClick = { onQuizComplete(0, 0, 0) }) { Text("Back") }
         }
         else -> QuizContent(
             state = state,

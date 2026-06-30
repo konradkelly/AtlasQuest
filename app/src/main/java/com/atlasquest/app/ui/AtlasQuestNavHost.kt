@@ -22,8 +22,9 @@ sealed class Screen(val route: String) {
     data object Quiz : Screen("quiz/{region}") {
         fun createRoute(region: String) = "quiz/$region"
     }
-    data object Results : Screen("results/{region}/{score}/{total}") {
-        fun createRoute(region: String, score: Int, total: Int) = "results/$region/$score/$total"
+    data object Results : Screen("results/{region}/{score}/{total}/{xp}") {
+        fun createRoute(region: String, score: Int, total: Int, xp: Int) =
+            "results/$region/$score/$total/$xp"
     }
 }
 
@@ -64,8 +65,8 @@ fun AtlasQuestNavHost(
             // QuizViewModel also reads the {region} nav arg from its SavedStateHandle.
             val regionId = backStackEntry.arguments?.getString("region").orEmpty()
             QuizScreen(
-                onQuizComplete = { score, total ->
-                    navController.navigate(Screen.Results.createRoute(regionId, score, total)) {
+                onQuizComplete = { score, total, xpEarned ->
+                    navController.navigate(Screen.Results.createRoute(regionId, score, total, xpEarned)) {
                         popUpTo(Screen.Home.route)
                     }
                 }
@@ -75,9 +76,11 @@ fun AtlasQuestNavHost(
             val region = backStackEntry.arguments?.getString("region")?.let(Region::fromId)
             val score = backStackEntry.arguments?.getString("score")?.toIntOrNull() ?: 0
             val total = backStackEntry.arguments?.getString("total")?.toIntOrNull() ?: 0
+            val xpEarned = backStackEntry.arguments?.getString("xp")?.toIntOrNull() ?: 0
             ResultsScreen(
                 score = score,
                 total = total,
+                xpEarned = xpEarned,
                 onPlayAgain = {
                     when {
                         // Eurasia is picked straight from the globe, so there's no
