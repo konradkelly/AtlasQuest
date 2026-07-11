@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pin Drop Globe</title>
+<!--
+  AtlasQuest pin-drop globe — the game's single answer surface. Every question
+  is answered by dropping a pin here; the confirmed pin is hit-tested against
+  the country polygons so Kotlin can score "did the pin land in the answer
+  country" (near-misses are scored by distance natively in Kotlin).
+
+  Bridge protocol (see spec.md):
+    JS -> Kotlin:  AtlasQuest.onPageReady()
+                   AtlasQuest.onPinPlaced()          — enables the native Confirm button
+                   AtlasQuest.onPinConfirmed(lat, lng, countryId, countryName)
+                     countryId is the tapped feature's ISO numeric id
+                     ("" when the pin is in the ocean or the feature has no id)
+    Kotlin -> JS:  AtlasPin.loadQuestion()
+                   AtlasPin.confirm()                — the Compose Confirm button
+                   AtlasPin.zoomBy(factor)           — the Compose + / - buttons
+                   AtlasPin.reveal(answerLat, answerLng, answerCountryId, correct)
+                     (the distance readout is native Compose UI, not in-page)
+
+  The Confirm control lives in native Compose UI, not in this page — overlay
+  buttons inside the WebView proved unreliable. The in-page #confirm button
+  only appears when there is no AtlasQuest bridge (desktop-browser testing).
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; width: 100%; overflow: hidden; }
+  body {
+    background: #0a1628;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    touch-action: none;
+  }
+  canvas#globe { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hint {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: rgba(255,255,255,0.45); white-space: nowrap;
+    pointer-events: none;
+  }
+  #confirm {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    background: #58CC02; border: none; border-radius: 20px; padding: 10px 28px;
+    font-size: 14px; font-weight: 600; color: #fff; cursor: pointer;
+    display: none; transition: transform 0.15s;
+  }
+  #confirm:active { transform: translateX(-50%) scale(0.96); }
+</style>
+</head>
+<body>
+<canvas id="globe"></canvas>
+<div id="hint">drag to spin • pinch or +/- to zoom • tap to drop a pin</div>
+<button id="confirm">Confirm pin</button>
+
+<script src="d3.min.js"></script>
+<script src="topojson.min.js"></script>
+<script>
+const canvas = document.getElementById('globe');
+const hintEl = document.getElementById('hint');
+const confirmBtn = document.getElementById('confirm');
+
+let W, H, ctx, projection, path;
+let countryFeatures = [];      // GeoJSON features, cached once after load
+let baseScale;                 // radius at zoom 1
+let zoom = 1;                  // 0.8 .. 6, multiplies baseScale
+let rotation = [0, -20];
+let spin = null;               // rotate/zoom tween {t, dur, from:[l,l,z], to:[l,l,z]}
+let particles = [];
+
+// Interaction state machine: BROWSE -> PIN_PLACED -> CONFIRMED -> REVEAL.
+let mode = 'BROWSE';
+let pin = null;                // [lng, lat] of the player's guess
+let answer = null;             // [lng, lat] set on reveal
+let answerId = null;           // answer country's feature id, highlighted on reveal
+
+// Feature ids in countries-110m.json are zero-padded ("032"); Kotlin's
+// IsoNumeric uses unpadded numeric strings ("32"). Normalize before comparing.
+function normId(id) {
+  const n = parseInt(id, 10);
+  return isNaN(n) ? '' : String(n);
+}
+
+// Political-map palette; each country keeps a stable colour keyed on its id
+// so neighbours usually differ and nothing shifts between frames.
+const COUNTRY_COLORS = ['#7fc97f', '#e8c76f', '#ef9a76', '#8fb8e8', '#b79fdd', '#6fcdb8'];
+function countryColor(f) {
+  const n = parseInt(f.id, 10);
+  const key = isNaN(n) ? (f.properties && f.properties.name ? f.properties.name.length : 0) : n;
+  return COUNTRY_COLORS[key % COUNTRY_COLORS.length];
+}
+
+const MIN_ZOOM = 0.8, MAX_ZOOM = 6, TAP_SLOP_PX = 8, TAP_MS = 350;
+// Default answering-state zoom — fills the card (like the reveal) instead of
+// floating a small disc in a sea of navy. Still shows most of a hemisphere.
+const BROWSE_ZOOM = 1.3;
+const PIN_GRAB_PX = 34;        // touch radius for dragging an existing pin
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  baseScale = Math.min(W, H) * 0.46;
+  projection = d3.geoOrthographic()
+    .scale(baseScale * zoom).translate([W / 2, H / 2]).clipAngle(90).rotate(rotation);
+  path = d3.geoPath(projection, ctx);
+}
+
+function loadData() {
+  // XMLHttpRequest (not fetch) honors allowFileAccessFromFileURLs for file:// assets.
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', 'countries-110m.json', true);
+  xhr.onload = function () {
+    if (xhr.status === 200 || xhr.status === 0) {
+      try {
+        const worldData = JSON.parse(xhr.responseText);
+        countryFeatures = topojson.feature(worldData, worldData.objects.countries).features;
+      } catch (e) { console.error(e); }
+    }
+    if (window.AtlasQuest && AtlasQuest.onPageReady) AtlasQuest.onPageReady();
+  };
+  xhr.onerror = function () { console.error('country data request errored'); };
+  xhr.send();
+}
+
+/* ---------- rendering ---------- */
+
+function visible(lnglat) {
+  // Front hemisphere test for the orthographic projection.
+  return d3.geoDistance(lnglat, [-rotation[0], -rotation[1]]) < Math.PI / 2;
+}
+
+function drawGlobe() {
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, r = projection.scale();
+
+  // Atmosphere halo — drawn first so the ocean disc paints over its centre.
+  const halo = ctx.createRadialGradient(cx, cy, r * 0.92, cx, cy, r * 1.1);
+  halo.addColorStop(0, 'rgba(110,175,255,0)');
+  halo.addColorStop(0.75, 'rgba(110,175,255,0.28)');
+  halo.addColorStop(1, 'rgba(110,175,255,0)');
+  ctx.beginPath(); ctx.arc(cx, cy, r * 1.1, 0, Math.PI * 2);
+  ctx.fillStyle = halo; ctx.fill();
+
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  const ocean = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, r * 0.1, cx, cy, r);
+  ocean.addColorStop(0, '#2a6ba3');
+  ocean.addColorStop(0.6, '#174a7c');
+  ocean.addColorStop(1, '#0c2c50');
+  ctx.fillStyle = ocean; ctx.fill(); ctx.restore();
+
+  if (countryFeatures.length) {
+    countryFeatures.forEach(f => {
+      const isAnswer = answerId !== null && f.id != null && normId(f.id) === answerId;
+      ctx.beginPath(); path(f);
+      ctx.fillStyle = isAnswer ? '#FFC107' : countryColor(f);
+      ctx.strokeStyle = isAnswer ? '#ffffff' : 'rgba(12,30,55,0.45)';
+      ctx.lineWidth = isAnswer ? 1.5 : 0.6; ctx.fill(); ctx.stroke();
+    });
+    // Graticule keeps zoomed-in ocean views from looking like empty space.
+    ctx.beginPath(); path(d3.geoGraticule10());
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 0.5; ctx.stroke();
+  }
+
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+
+  if (answer && pin && visible(answer) && visible(pin)) drawArc(pin, answer);
+  // White outlines keep the markers legible on any country colour; the answer
+  // pin is dark with a gold dot so it still reads on the gold-lit country.
+  if (pin && visible(pin)) drawPin(pin, '#FF4B4B', '#0a1628');
+  if (answer && visible(answer)) drawPin(answer, '#263238', '#FFC107');
+
+  particles.forEach(p => {
+    p.life--; p.x += p.vx; p.y += p.vy; p.vy -= 0.04;
+    if (p.life > 0) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (p.life / p.maxLife), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.cr},${p.cg},${p.cb},${p.life / p.maxLife * 0.8})`; ctx.fill();
+    }
+  });
+  particles = particles.filter(p => p.life > 0);
+}
+
+function drawPin(lnglat, color, dotColor) {
+  const p = projection(lnglat);
+  if (!p) return;
+  const [x, y] = p;
+  ctx.save();
+  // Teardrop marker: circle head + point, anchored at the location.
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.bezierCurveTo(x - 9, y - 12, x - 9, y - 20, x, y - 20);
+  ctx.bezierCurveTo(x + 9, y - 20, x + 9, y - 12, x, y);
+  ctx.fillStyle = color;
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y - 14, 3.2, 0, Math.PI * 2);
+  ctx.fillStyle = dotColor; ctx.fill();
+  ctx.restore();
+}
+
+function drawArc(from, to) {
+  // Great-circle arc sampled along geoInterpolate; segments on the back
+  // hemisphere break the stroke rather than cutting across the disc.
+  const interp = d3.geoInterpolate(from, to);
+  ctx.save();
+  ctx.beginPath();
+  let pen = false;
+  for (let i = 0; i <= 64; i++) {
+    const g = interp(i / 64);
+    if (!visible(g)) { pen = false; continue; }
+    const p = projection(g);
+    if (!p) { pen = false; continue; }
+    if (pen) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]);
+    pen = true;
+  }
+  ctx.strokeStyle = 'rgba(255,193,7,0.85)';
+  ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke();
+  ctx.restore();
+}
+
+function spawnParticles(x, y) {
+  for (let i = 0; i < 30; i++) {
+    const angle = Math.random() * Math.PI * 2, speed = Math.random() * 3 + 1;
+    particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 2,
+      r: Math.random() * 4 + 2, life: Math.random() * 40 + 20, maxLife: 60,
+      cr: 255, cg: 193, cb: 7 });
+  }
+}
+
+function loop() {
+  if (spin) {
+    spin.t++;
+    const k = Math.min(spin.t / spin.dur, 1);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;   // easeInOutQuad
+    rotation[0] = spin.from[0] + (spin.to[0] - spin.from[0]) * e;
+    rotation[1] = spin.from[1] + (spin.to[1] - spin.from[1]) * e;
+    zoom = spin.from[2] + (spin.to[2] - spin.from[2]) * e;
+    projection.rotate(rotation).scale(baseScale * zoom);
+    if (k >= 1) spin = null;
+  }
+  drawGlobe();
+  requestAnimationFrame(loop);
+}
+
+function spinTo(lng, lat, targetZoom, dur) {
+  // Take the short way around in longitude so the tween never wraps the globe.
+  let toLng = -lng;
+  while (toLng - rotation[0] > 180) toLng -= 360;
+  while (toLng - rotation[0] < -180) toLng += 360;
+  spin = { t: 0, dur: dur || 36, from: [rotation[0], rotation[1], zoom], to: [toLng, -lat, targetZoom] };
+}
+
+/* ---------- input ---------- */
+
+function insideDisc(x, y) {
+  return Math.hypot(x - W / 2, y - H / 2) <= projection.scale();
+}
+
+function nearPin(x, y) {
+  if (!pin || !visible(pin)) return false;
+  const p = projection(pin);
+  return p && Math.hypot(x - p[0], y - p[1] + 10) < PIN_GRAB_PX;
+}
+
+function placePin(x, y) {
+  if (!insideDisc(x, y)) return;
+  const g = projection.invert([x, y]);
+  if (!g || isNaN(g[0])) return;
+  const firstPin = !pin;
+  pin = g;
+  hintEl.style.display = 'none';
+  // The Confirm control is native Compose; the in-page button is only the
+  // standalone-browser fallback.
+  if (window.AtlasQuest && AtlasQuest.onPinPlaced) AtlasQuest.onPinPlaced();
+  else confirmBtn.style.display = 'block';
+  // First placement steps the zoom in for refinement (tap -> zoom -> refine).
+  if (firstPin && zoom < 2) spinTo(g[0], g[1], Math.min(zoom * 1.8, 2.5));
+}
+
+let pointers = new Map();      // active touches: id -> {x, y}
+let gesture = null;            // 'rotate' | 'pin' | 'pinch'
+let downAt = 0, downXY = null, moved = false;
+let rotStart = null, pinchStart = null;
+
+function acceptingInput() { return mode === 'BROWSE' || mode === 'PIN_PLACED'; }
+
+function onDown(id, x, y) {
+  if (!acceptingInput()) return;
+  pointers.set(id, { x, y });
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinchStart = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom };
+    gesture = 'pinch';
+    spin = null;
+  } else if (pointers.size === 1) {
+    downAt = Date.now(); downXY = [x, y]; moved = false;
+    gesture = nearPin(x, y) ? 'pin' : 'rotate';
+    rotStart = { xy: [x, y], rot: [...rotation] };
+    spin = null;
+  }
+}
+
+function onMove(id, x, y) {
+  if (!acceptingInput() || !pointers.has(id)) return;
+  pointers.set(id, { x, y });
+  if (gesture === 'pinch' && pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStart.zoom * d / pinchStart.dist));
+    projection.scale(baseScale * zoom);
+    return;
+  }
+  if (downXY && Math.hypot(x - downXY[0], y - downXY[1]) > TAP_SLOP_PX) moved = true;
+  if (gesture === 'pin' && moved) {
+    if (insideDisc(x, y)) {
+      const g = projection.invert([x, y]);
+      if (g && !isNaN(g[0])) pin = g;
+    }
+  } else if (gesture === 'rotate' && moved) {
+    // Sensitivity scales down as zoom goes up so refinement stays precise.
+    const sens = 0.5 / zoom;
+    rotation[0] = rotStart.rot[0] + (x - rotStart.xy[0]) * sens;
+    rotation[1] = rotStart.rot[1] - (y - rotStart.xy[1]) * sens;
+    rotation[1] = Math.max(-90, Math.min(90, rotation[1]));
+    projection.rotate(rotation);
+  }
+}
+
+function onUp(id, x, y) {
+  if (!pointers.has(id)) return;
+  pointers.delete(id);
+  if (pointers.size > 0) return;
+  const wasTap = !moved && (Date.now() - downAt) < TAP_MS && gesture !== 'pinch';
+  if (wasTap && acceptingInput()) {
+    placePin(x, y);
+    if (mode === 'BROWSE' && pin) mode = 'PIN_PLACED';
+  }
+  gesture = null; pinchStart = null; downXY = null;
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) onDown(t.identifier, t.clientX, t.clientY);
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) onMove(t.identifier, t.clientX, t.clientY);
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) onUp(t.identifier, t.clientX, t.clientY);
+}, { passive: false });
+canvas.addEventListener('touchcancel', e => {
+  for (const t of e.changedTouches) pointers.delete(t.identifier);
+  gesture = null; pinchStart = null;
+});
+
+// Mouse fallback for desktop-browser testing.
+let mouseDown = false;
+canvas.addEventListener('mousedown', e => { mouseDown = true; onDown('m', e.clientX, e.clientY); });
+canvas.addEventListener('mousemove', e => { if (mouseDown) onMove('m', e.clientX, e.clientY); });
+canvas.addEventListener('mouseup', e => { mouseDown = false; onUp('m', e.clientX, e.clientY); });
+canvas.addEventListener('wheel', e => {
+  if (!acceptingInput()) return;
+  zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * (e.deltaY < 0 ? 1.15 : 0.87)));
+  projection.scale(baseScale * zoom);
+});
+
+// Which country polygon contains the point, or null for ocean. Linear scan of
+// ~180 features with d3.geoContains — runs only on confirm, plenty fast.
+function countryAt(lnglat) {
+  for (const f of countryFeatures) if (d3.geoContains(f, lnglat)) return f;
+  return null;
+}
+
+function confirmPin() {
+  if (mode !== 'PIN_PLACED' || !pin) return;
+  mode = 'CONFIRMED';
+  confirmBtn.style.display = 'none';
+  const lat = pin[1], lng = pin[0];
+  const hit = countryAt(pin);
+  const hitId = hit && hit.id != null ? normId(hit.id) : '';
+  const hitName = (hit && hit.properties && hit.properties.name) || '';
+  if (window.AtlasQuest && AtlasQuest.onPinConfirmed) AtlasQuest.onPinConfirmed(lat, lng, hitId, hitName);
+  else console.log('onPinConfirmed', lat, lng, hitId, hitName);   // standalone testing
+}
+
+confirmBtn.addEventListener('click', confirmPin);
+
+/* ---------- Kotlin-driven API ---------- */
+
+window.AtlasPin = {
+  /** Reset for a new question. Zooms back out but keeps the player's
+   *  orientation — the whole world is the playing field, and any specific
+   *  framing would hint at the answer. */
+  loadQuestion: function () {
+    mode = 'BROWSE';
+    pin = null; answer = null; answerId = null; particles = [];
+    confirmBtn.style.display = 'none';
+    hintEl.style.display = 'block';
+    spin = { t: 0, dur: 24, from: [rotation[0], rotation[1], zoom], to: [rotation[0], rotation[1], BROWSE_ZOOM] };
+  },
+  /** Lock in the current pin (driven by the native Confirm button). */
+  confirm: confirmPin,
+  /** Step the zoom in (factor > 1) or out (factor < 1), tweened and clamped,
+   *  keeping the current orientation. Driven by the native + / - buttons. */
+  zoomBy: function (factor) {
+    const target = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * factor));
+    spin = { t: 0, dur: 16, from: [rotation[0], rotation[1], zoom], to: [rotation[0], rotation[1], target] };
+  },
+  /** Show the true location, highlight the answer country, and draw the
+   *  guess-to-answer arc. The distance readout is native Compose UI. */
+  reveal: function (answerLat, answerLng, answerCountryId, correct) {
+    mode = 'REVEAL';
+    answer = [answerLng, answerLat];
+    answerId = answerCountryId ? normId(answerCountryId) : null;
+    confirmBtn.style.display = 'none';
+    // Frame the answer (and usually the guess) in view.
+    spinTo(answerLng, answerLat, Math.max(zoom, 1.4), 30);
+    if (correct) {
+      setTimeout(() => {
+        const p = projection(answer);
+        if (p) spawnParticles(p[0], p[1]);
+      }, 550);
+    }
+  },
+};
+
+window.addEventListener('resize', resize);
+resize(); loop(); loadData();
+</script>
+</body>
+</html>

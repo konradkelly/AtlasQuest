@@ -9,6 +9,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.atlasquest.app.ui.mascot.MascotEmotion
+import com.atlasquest.app.ui.mascot.MascotView
 import com.atlasquest.app.ui.profile.ProfileViewModel
 
 @Composable
@@ -21,6 +23,8 @@ fun ResultsScreen(
     profileViewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val profile by profileViewModel.profile.collectAsState()
+    val resultEmotion = if (score.toFloat() / total >= 0.7f || profile.currentStreak >= 3)
+        MascotEmotion.CELEBRATE else MascotEmotion.ENCOURAGE
 
     Column(
         modifier = Modifier
@@ -29,6 +33,8 @@ fun ResultsScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        MascotView(emotion = resultEmotion, modifier = Modifier.size(140.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "$score / $total",
             style = MaterialTheme.typography.headlineLarge,

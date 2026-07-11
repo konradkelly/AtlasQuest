@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.atlasquest.app.ui.mascot.MascotEmotion
+import com.atlasquest.app.ui.mascot.MascotView
 import com.atlasquest.app.ui.profile.ProfileViewModel
 
 @Composable
@@ -39,6 +41,8 @@ fun HomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        MascotView(emotion = MascotEmotion.IDLE, modifier = Modifier.size(120.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "AtlasQuest",
             style = MaterialTheme.typography.headlineLarge,

@@ -80,6 +80,9 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    // Mascot animations
+    implementation(libs.lottie.compose)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
