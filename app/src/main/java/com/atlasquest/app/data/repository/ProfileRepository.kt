@@ -18,11 +18,8 @@ class ProfileRepository @Inject constructor(
     suspend fun hasPlayedToday(): Boolean =
         dao.getProfileOnce()?.lastPlayedEpochDay == LocalDate.now().toEpochDay()
 
-    suspend fun recordQuizResult(regionId: String, correct: Int, total: Int, xpEarned: Int): Profile =
+    suspend fun recordQuizResult(xpEarned: Int): Profile =
         dao.recordQuizResult(
-            regionId = regionId,
-            correct = correct,
-            total = total,
             xpEarned = xpEarned,
             today = LocalDate.now().toEpochDay(),
         ).toDomain()

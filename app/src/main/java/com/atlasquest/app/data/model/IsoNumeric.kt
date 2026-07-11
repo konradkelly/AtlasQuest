@@ -2,17 +2,19 @@ package com.atlasquest.app.data.model
 
 /**
  * Bridges the two country identifiers AtlasQuest uses:
- *  - [Region] lists countries by ISO 3166-1 **alpha-2** code ("US", "CA").
+ *  - [Question.countryCode] is an ISO 3166-1 **alpha-2** code ("US", "CA").
  *  - The bundled globe data (assets/globe/countries-110m.json) keys features by
- *    ISO 3166-1 **numeric** id ("840", "124") with a `properties.name` fallback.
+ *    ISO 3166-1 **numeric** id ("840", "124").
  *
- * The subregion globe needs numeric ids to color and hit-test countries, so we
- * convert here. [Region] stays the single source of truth for which countries
- * belong to which subregion; this object only translates the codes.
+ * The pin globe hit-tests the player's pin against country polygons and reports
+ * the numeric feature id over the bridge; scoring converts the question's
+ * alpha-2 code here to decide whether the pin landed in the answer country.
+ * Every code that appears in questions.json must have an entry (the seeder
+ * enforces this at import time).
  */
 object IsoNumeric {
 
-    /** alpha-2 -> numeric, for every code that appears in [Region]. */
+    /** alpha-2 -> numeric, matching the 110m dataset's feature ids. */
     val alpha2ToNumeric: Map<String, String> = mapOf(
         // North America
         "US" to "840", "CA" to "124", "MX" to "484", "GL" to "304",
@@ -33,7 +35,7 @@ object IsoNumeric {
         "PL" to "616", "CZ" to "203", "SK" to "703", "HU" to "348", "RO" to "642",
         "BG" to "100", "UA" to "804", "BY" to "112", "MD" to "498", "RU" to "643",
         "HR" to "191", "SI" to "705", "BA" to "70", "RS" to "688", "ME" to "499",
-        "MK" to "807", "AL" to "8", // XK (Kosovo) has no numeric id -> nameToRegionId
+        "MK" to "807", "AL" to "8", // XK (Kosovo) has no numeric id in the dataset
         // Africa
         "EG" to "818", "LY" to "434", "TN" to "788", "DZ" to "12", "MA" to "504",
         "SD" to "729", "EH" to "732",
@@ -65,16 +67,5 @@ object IsoNumeric {
         "FJ" to "242", "SB" to "90", "VU" to "548", "WS" to "882", "TO" to "776",
         "KI" to "296", "FM" to "583", "PW" to "585", "MH" to "584", "NR" to "520",
         "TV" to "798",
-    )
-
-    /**
-     * Features in the 110m dataset that carry no usable numeric id and must be
-     * matched by Natural Earth `properties.name`. Maps that name to the
-     * [Region.id] it belongs to (mirrors the continent globe's NAME_OVERRIDE).
-     */
-    val nameToRegionId: Map<String, String> = mapOf(
-        "Kosovo" to "balkans",        // XK — no numeric ISO code
-        "Somaliland" to "east_africa", // de facto part of Somalia (SO)
-        "Puerto Rico" to "caribbean", // belt-and-suspenders if keyed by name
     )
 }

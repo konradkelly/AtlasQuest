@@ -6,11 +6,10 @@ import com.atlasquest.app.data.local.dao.ProfileDao
 import com.atlasquest.app.data.local.dao.QuestionDao
 import com.atlasquest.app.data.local.entity.ProfileEntity
 import com.atlasquest.app.data.local.entity.QuestionEntity
-import com.atlasquest.app.data.local.entity.RegionStatsEntity
 
 @Database(
-    entities = [QuestionEntity::class, ProfileEntity::class, RegionStatsEntity::class],
-    version = 3,
+    entities = [QuestionEntity::class, ProfileEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

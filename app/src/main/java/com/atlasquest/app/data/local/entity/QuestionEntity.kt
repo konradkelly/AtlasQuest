@@ -8,10 +8,10 @@ data class QuestionEntity(
     @PrimaryKey val id: Long,
     val category: String,
     val text: String,
-    val optionsJson: String,    // JSON array of strings
-    val correctAnswerIndex: Int,
-    val region: String,
+    val countryName: String,
+    val countryCode: String,    // ISO 3166-1 alpha-2 ("FR")
+    val answerLat: Double,
+    val answerLng: Double,
     val difficulty: Int,
-    val imageResName: String? = null,
     val explanation: String? = null,
 )

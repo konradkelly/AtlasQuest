@@ -12,15 +12,6 @@ interface QuestionDao {
     @Query("SELECT * FROM questions ORDER BY RANDOM() LIMIT :limit")
     fun getRandomQuestions(limit: Int = 10): Flow<List<QuestionEntity>>
 
-    @Query("SELECT * FROM questions WHERE region = :region ORDER BY RANDOM() LIMIT :limit")
-    fun getQuestionsByRegion(region: String, limit: Int = 10): Flow<List<QuestionEntity>>
-
-    @Query("SELECT * FROM questions WHERE category = :category ORDER BY RANDOM() LIMIT :limit")
-    fun getQuestionsByCategory(category: String, limit: Int = 10): Flow<List<QuestionEntity>>
-
-    @Query("SELECT * FROM questions WHERE difficulty <= :maxDifficulty ORDER BY RANDOM() LIMIT :limit")
-    fun getQuestionsByDifficulty(maxDifficulty: Int, limit: Int = 10): Flow<List<QuestionEntity>>
-
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(questions: List<QuestionEntity>)
 

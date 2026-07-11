@@ -3,10 +3,9 @@ package com.atlasquest.app.data.local
 import android.content.Context
 import com.atlasquest.app.data.local.dao.QuestionDao
 import com.atlasquest.app.data.local.entity.QuestionEntity
+import com.atlasquest.app.data.model.IsoNumeric
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,11 +15,11 @@ private data class QuestionSeed(
     val id: Long,
     val category: String,
     val text: String,
-    val options: List<String>,
-    val correctAnswerIndex: Int,
-    val region: String,
+    val countryName: String,
+    val countryCode: String,
+    val answerLat: Double,
+    val answerLng: Double,
     val difficulty: Int,
-    val imageResName: String? = null,
     val explanation: String? = null,
 )
 
@@ -45,15 +44,20 @@ class DatabaseSeeder @Inject constructor(
 
         val seeds = Json.decodeFromString<List<QuestionSeed>>(json)
         val entities = seeds.map {
+            // A country the globe can't hit-test would make its question
+            // unanswerable — fail at seed time, not in the quiz.
+            require(IsoNumeric.alpha2ToNumeric.containsKey(it.countryCode)) {
+                "Question ${it.id}: country code ${it.countryCode} has no numeric id mapping"
+            }
             QuestionEntity(
                 id = it.id,
                 category = it.category,
                 text = it.text,
-                optionsJson = Json.encodeToString(ListSerializer(String.serializer()), it.options),
-                correctAnswerIndex = it.correctAnswerIndex,
-                region = it.region,
+                countryName = it.countryName,
+                countryCode = it.countryCode,
+                answerLat = it.answerLat,
+                answerLng = it.answerLng,
                 difficulty = it.difficulty,
-                imageResName = it.imageResName,
                 explanation = it.explanation,
             )
         }
@@ -64,7 +68,7 @@ class DatabaseSeeder @Inject constructor(
 
     companion object {
         /** Bump whenever questions.json changes so devices re-import it. */
-        private const val SEED_VERSION = 3
+        private const val SEED_VERSION = 5
         private const val PREFS_NAME = "atlasquest_seed"
         private const val KEY_SEED_VERSION = "seed_version"
     }
